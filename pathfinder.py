@@ -1,7 +1,7 @@
 import math
 from smath import *
 
-attractionDistance = 50
+attractionDistance = 60
 		
 class PathFindingAlgorithm():
 	def __init__(self):

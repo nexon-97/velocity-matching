@@ -6,11 +6,10 @@ from itertools import tee, izip
 import math
 from smath import *
 from pathfinder import *
+import json
 
-initialPosition = (float(sys.argv[1]), float(sys.argv[2]))
-initialVelocity = (float(sys.argv[3]), float(sys.argv[4]))
-targetPosition = (float(sys.argv[5]), float(sys.argv[6]))
-targetVelocity = (float(sys.argv[7]), float(sys.argv[8]))
+conditionsPath = sys.argv[1]
+obstaclesDataPath = sys.argv[2]
 
 width = 1600
 height = 900
@@ -22,6 +21,7 @@ RED_COLOR = sdl2.ext.Color(255, 0, 0)
 GREEN_COLOR = sdl2.ext.Color(0, 200, 0)
 YELLOW_COLOR = sdl2.ext.Color(255, 255, 0)
 YELLOW2_COLOR = sdl2.ext.Color(200, 200, 0)
+ORANGE_COLOR = sdl2.ext.Color(255, 131, 0)
 RESOURCES = sdl2.ext.Resources(__file__, "resources")
 
 # ==================================
@@ -54,13 +54,40 @@ class Player():
 		halfSize = (size[0] / 2, size[1] / 2)
 		position = self.transform.position
 		drawPosition = (int(position.x - halfSize[0]), int(position.y - halfSize[1]))
-		centerPos = position
 		
 		renderer.copy(self.sprite, (0, 0, size[0], size[1]),
 			dstrect=(drawPosition[0], drawPosition[1], size[0], size[1]),
 			angle=self.transform.rotation)
 		
 		renderer.fill((int(position.x) - 3, int(position.y) - 3, 6, 6), GREEN_COLOR)
+
+# ==================================
+
+class CircleObstacle():
+	def __init__(self, sprite, size):
+		self.sprite = sprite
+		self.size = size
+		self.transform = Transform()
+		
+	def render(self, renderer):
+		halfSize = (self.size[0] / 2, self.size[1] / 2)
+		spriteSize = self.sprite.size
+		position = self.transform.position
+		drawPosition = (int(position.x - halfSize[0]), int(position.y - halfSize[1]))
+		
+		renderer.copy(self.sprite, (0, 0, spriteSize[0], spriteSize[1]),
+			dstrect=(drawPosition[0], drawPosition[1], self.size[0], self.size[1]))
+
+# ==================================
+
+class PolylineObstacle():
+	def __init__(self, lines=[]):
+		self.lines = lines
+		
+	def render(self, renderer):
+		for pfrom, pto in pairwise(self.lines):
+			renderer.draw_line((int(pfrom.x), int(pfrom.y), int(pto.x), int(pto.y)), ORANGE_COLOR)
+			renderer.draw_line((int(pfrom.x), int(pfrom.y + 2), int(pto.x), int(pto.y + 2)), ORANGE_COLOR)
 		
 # ==================================
 
@@ -117,6 +144,7 @@ class Context():
 		self.playbackStep = 0
 		
 		self.pathfinder = PathFindingAlgorithm()
+		self.loadObstaclesData()
 		
 	def dispatchUI(self, event):
 		self.uiProcessor.dispatch(self.world, event)
@@ -133,22 +161,35 @@ class Context():
 	def initPlayers(self):
 		playerSprite = self.spriteFactory.from_image(RESOURCES.get_path("arrow.png"))
 		self.player = Player(playerSprite)
-		
-		self.player.transform.position.x = initialPosition[0]
-		self.player.transform.position.y = initialPosition[1]
-		self.player.velocity.x = initialVelocity[0]
-		self.player.velocity.y = initialVelocity[1]
-		self.player.velocity.normalize()
-		self.player.transform.rotation = velocityToAngle(self.player.velocity)
-		
+
 		targetSprite = self.spriteFactory.from_image(RESOURCES.get_path("arrow_target.png"))
 		self.target = Player(targetSprite)
-		self.target.transform.position.x = targetPosition[0]
-		self.target.transform.position.y = targetPosition[1]
-		self.target.velocity.x = targetVelocity[0]
-		self.target.velocity.y = targetVelocity[1]
-		self.target.velocity.normalize()
-		self.target.transform.rotation = velocityToAngle(self.target.velocity)
+
+		self.obstacleSprite = self.spriteFactory.from_image(RESOURCES.get_path("Circle.png"))
+
+		with open(conditionsPath) as f:
+			conditionsData = json.load(f)
+
+			playerData = conditionsData['player']
+			targetData = conditionsData['target']
+
+			initialPosition = vec2f(playerData['position']['x'], playerData['position']['y'])
+			initialVelocity = vec2f(playerData['direction']['x'], playerData['direction']['y'])
+			initialVelocity.normalize()
+
+			targetPosition = vec2f(targetData['position']['x'], targetData['position']['y'])
+			targetVelocity = vec2f(targetData['direction']['x'], targetData['direction']['y'])
+			initialVelocity.normalize()
+			
+			self.player.transform.position = initialPosition
+			self.player.velocity = initialVelocity
+			self.player.transform.rotation = velocityToAngle(self.player.velocity)
+			self.player.speed = playerData['speed']
+
+			self.target.transform.position = targetPosition
+			self.target.velocity = targetVelocity
+			self.target.velocity.normalize()
+			self.target.transform.rotation = velocityToAngle(self.target.velocity)
 		
 	def processWorld(self):
 		self.world.process()
@@ -179,11 +220,44 @@ class Context():
 			self.renderer.draw_line((int(pfrom.x), int(pfrom.y), int(pto.x), int(pto.y)), RED_COLOR)
 			self.renderer.fill((int(pto.x) - 1, int(pto.y) - 1, 3, 3), RED_COLOR)
 		
+		# Render obstacles
+		for obstacle in self.obstacles:
+			obstacle.render(self.renderer)
+
 		# Render players
 		self.renderer.copy(self.stepBtn, srcrect=(0, 0, 100, 40), dstrect=(20, 20, 100, 40))
 		self.renderer.copy(self.createPathBtn, srcrect=(0, 0, 100, 40), dstrect=(140, 20, 100, 40))
 		
 		self.renderer.present()
+
+	def loadObstaclesData(self):
+		self.obstacles = []
+
+		with open(obstaclesDataPath) as f:
+			obstaclesData = json.load(f)
+			obstaclesData = obstaclesData['data']
+
+			for obstacleData in obstaclesData:
+				obstacleType = obstacleData['type']
+
+				obstacle = None
+				if obstacleType == 'circle':
+					diameter = obstacleData['radius'] * 2
+					obstacle = CircleObstacle(self.obstacleSprite, (diameter, diameter))
+					position = vec2f(obstacleData['position']['x'], obstacleData['position']['y'])
+					obstacle.transform.position = position
+				elif obstacleType == 'polyline':
+					linePoints = []
+					pointsData = obstacleData['points']
+
+					for pointData in pointsData:
+						point = vec2f(pointData['x'], pointData['y'])
+						linePoints.append(point)
+
+					obstacle = PolylineObstacle(linePoints)
+
+				if obstacle != None:
+					self.obstacles.append(obstacle)
 		
 # ==================================
 
