@@ -113,6 +113,7 @@ def updatePath(sender, *args):
 	targetVelocity = context.target.velocity
 	
 	context.pathfinder.playerSpeed = context.player.speed
+	context.pathfinder.constraints = context.constraints
 	path = context.pathfinder.getPath(position, velocity, target, targetVelocity)
 	
 	context.playbackStep = 0
@@ -144,6 +145,7 @@ class Context():
 		self.playbackStep = 0
 		
 		self.pathfinder = PathFindingAlgorithm()
+		self.constraintFactory = constraints.ConstraintFactory()
 		self.loadObstaclesData()
 		
 	def dispatchUI(self, event):
@@ -232,6 +234,9 @@ class Context():
 
 	def loadObstaclesData(self):
 		self.obstacles = []
+		self.constraints = []
+
+		contraintFactory = constraints.ConstraintFactory()
 
 		with open(obstaclesDataPath) as f:
 			obstaclesData = json.load(f)
@@ -246,6 +251,7 @@ class Context():
 					obstacle = CircleObstacle(self.obstacleSprite, (diameter, diameter))
 					position = vec2f(obstacleData['position']['x'], obstacleData['position']['y'])
 					obstacle.transform.position = position
+
 				elif obstacleType == 'polyline':
 					linePoints = []
 					pointsData = obstacleData['points']
@@ -258,6 +264,10 @@ class Context():
 
 				if obstacle != None:
 					self.obstacles.append(obstacle)
+
+				# Create constraint for this collision
+				constraint = contraintFactory.fromShapeDef(obstacleData)
+				self.constraints.append(constraint)
 		
 # ==================================
 

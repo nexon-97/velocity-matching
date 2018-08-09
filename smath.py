@@ -79,6 +79,9 @@ class vec2f(object):
 		result.x = self.x * other
 		result.y = self.y * other
 		return result
+
+	def __neg__(self):
+		return vec2f(-self.x, -self.y)
 		
 	def __str__(self):
 		return ("vec2f(%1.3f; %1.3f)") % (self.x, self.y)

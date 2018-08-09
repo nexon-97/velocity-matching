@@ -1,4 +1,5 @@
 import math
+import constraints
 from smath import *
 
 attractionDistance = 60
@@ -7,11 +8,12 @@ class PathFindingAlgorithm():
 	def __init__(self):
 		self.pathPoints = []
 		self.pathOrientations = []
+		self.constraints = []
 		self.executionTime = 0
 		self.pathPointsCount = 40
 		self.playerSpeed = 10
 		self.maxSteeringAngle = radians(20)
-		self.logEnabled = True
+		self.logEnabled = False
 		self.pushAwayTreshold = 0.15
 	
 	def getPath(self, position, velocity, targetPosition, targetVelocity):
@@ -27,6 +29,7 @@ class PathFindingAlgorithm():
 		playerSpeed = self.playerSpeed
 		playerRotation = velocityToAngle(playerVelocity)
 		oldVelocity = playerVelocity
+		oldPos = playerPos
 
 		# Add first trajectory point at current player state
 		self.pathPoints.append(playerPos)
@@ -95,15 +98,57 @@ class PathFindingAlgorithm():
 			
 			# filter velocity to match physic steering capabilities
 			playerVelocity = self.filterSteering(oldVelocity, playerVelocity, self.maxSteeringAngle)
-			
+
 			# generate new trajectory point
 			playerPos += playerVelocity * playerSpeed
-			playerRotation = velocityToAngle(playerVelocity)
-			oldVelocity = playerVelocity
-			
+
+			# check for constraints violation
+			constraintsViolated = False
+			constraintsChecked = False
+			shouldFilterBackward = False
+
+			while not constraintsChecked or constraintsViolated:
+				constraintsViolated = False
+
+				for constraint in self.constraints:
+					if constraint.willViolate(playerPos, playerVelocity):
+						constraintsViolated = True
+						print('Constraint violated - %s! Suggesting a new point' % constraint)
+						suggestion = constraint.suggestPoint(oldPos, oldVelocity, playerPos, playerVelocity)
+						playerPos = suggestion[0]
+						playerVelocity = suggestion[1]
+						shouldFilterBackward = True
+
+				constraintsChecked = True
+
 			# store point info in output
 			self.pathPoints.append(playerPos)
+			playerRotation = velocityToAngle(playerVelocity)
 			self.pathOrientations.append(playerRotation)
+
+			# apply backward filtering
+			if shouldFilterBackward:
+				for j in xrange(i + 1, 2, -1):
+					print('shouldFilterBackward step %d' % j)
+					pFrom = (self.pathPoints[j], -angleToVelocity(self.pathOrientations[j]))
+					#velocityTo = self.pathPoints[j - 2] - self.pathPoints[j - 1]
+					#velocityTo.normalize()
+					pTo = (self.pathPoints[j - 1], -angleToVelocity(self.pathOrientations[j - 1]))
+					filterResult = self.filterSteeringAlt(pFrom, pTo, self.maxSteeringAngle)
+
+					if filterResult[0]:
+						self.pathPoints[j - 1] = filterResult[1]
+						self.pathOrientations[j - 1] = velocityToAngle(-filterResult[2])
+						if j >= 2:
+							diff = self.pathPoints[j - 1] - self.pathPoints[j - 2]
+							diff.normalize()
+							self.pathOrientations[j - 2] = velocityToAngle(diff)
+						print('filtering occured!')
+					else:
+						break
+
+			oldPos = playerPos	
+			oldVelocity = playerVelocity
 			
 		# Return result path
 		return { "points": self.pathPoints, "rotations": self.pathOrientations }
@@ -121,6 +166,32 @@ class PathFindingAlgorithm():
 			
 		else:
 			return newVelocity
+
+	# Returns tuple, where the first element is the result, if the points were modified
+	# If they were modified - new point is stored in tuple 2nd and 3rd positions
+	def filterSteeringAlt(self, pointSrc, pointDest, maxSteeringAngle):
+		srcVelocity = pointSrc[1]
+		destVelocity = pointDest[1]
+		posDelta = pointDest[0] - pointSrc[0]
+		posDelta.normalize()
+		#print('posDelta: %s' % posDelta)
+		print('srcVelocity: %s' % srcVelocity)
+		print('destVelocity: %s' % destVelocity)
+
+		cos = clamp(dot(srcVelocity, destVelocity), -1, 1)
+		angle = math.acos(cos)
+		
+		print('angle: %1.3f' % angle)
+		if angle > maxSteeringAngle:
+			right = rotate(srcVelocity, 90)
+			side = sign(dot(right, destVelocity))
+			
+			filtered = rotate(srcVelocity, degrees(maxSteeringAngle) * side)
+			print('filtered: %s' % filtered)
+			newPos = pointSrc[0] + filtered * self.playerSpeed
+			return (True, newPos, filtered)
+		else:
+			return (False,)
 			
 	def log(self, msg):
 		if self.logEnabled:
